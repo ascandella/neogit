@@ -250,6 +250,10 @@ local git_root = async(function()
   return vim.trim(await(process.spawn({cmd = 'git', args = {'rev-parse', '--show-toplevel'}})))
 end)
 
+local git_config = async(function(config_key)
+  return vim.trim(await(process.spawn({cmd = 'git', args = {'config', config_key}})))
+end)
+
 local git_root_sync = function()
   return vim.trim(vim.fn.system("git rev-parse --show-toplevel"))
 end
@@ -284,7 +288,7 @@ local function handle_new_cmd(job, popup)
   end
 end
 
-local exec = async(function(cmd, args, cwd, stdin, env, show_popup)
+local exec = async(function(cmd, args, cwd, stdin, env, show_popup, stream_output)
   args = args or {}
   if show_popup == nil then show_popup = true end
   table.insert(args, 1, cmd)
@@ -301,7 +305,8 @@ local exec = async(function(cmd, args, cwd, stdin, env, show_popup)
     args = args,
     env = env,
     input = stdin,
-    cwd = cwd
+    cwd = cwd,
+    stream_output = stream_output,
   }
   local result, code, errors = await(process.spawn(opts))
   handle_new_cmd({
@@ -400,6 +405,13 @@ local mt_builder = {
       end
     end
 
+    if action == 'stream_output' then
+      return function (stream_output)
+        tbl[k_state].stream_output = stream_output
+        return tbl
+      end
+    end
+
     if tbl[k_config].flags[action] then
       table.insert(tbl[k_state].options, tbl[k_config].flags[action])
       return tbl
@@ -452,6 +464,7 @@ local function new_builder(subcommand)
     files = {},
     input = nil,
     show_popup = true,
+    stream_output = false,
     cwd = nil,
     env = {}
   }
@@ -471,7 +484,7 @@ local function new_builder(subcommand)
         table.insert(args, 1, state.prefix)
       end
 
-      return await(exec(subcommand, args, state.cwd, state.input, state.env, state.show_popup))
+      return await(exec(subcommand, args, state.cwd, state.input, state.env, state.show_popup, state.stream_output))
     end),
     call_sync = function()
       local args = {}
@@ -550,6 +563,7 @@ local meta = {
 
 local cli = setmetatable({
   history = history,
+  git_config = git_config,
   git_root = git_root,
   git_root_sync = git_root_sync,
   git_dir_path_sync = git_dir_path_sync,

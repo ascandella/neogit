@@ -88,6 +88,22 @@ local prompt_commit_message = async(function (msg, skip_gen)
   await(get_commit_message(output))
 end)
 
+local stream_output_buffer = async(function()
+  local git_config_value = await(cli.git_config('neogit.streamcommit'))
+  if git_config_value ~= "true" then
+    return nil
+  end
+  await(scheduler())
+  return Buffer.create({
+    name = "NeogitCommandOutput",
+    filetype = "NeogitCommandOutput",
+    kind = "vsplit",
+    initialize = function(output_buffer)
+      output_buffer:set_lines(0, -1, false, {"# Git commit output"})
+    end,
+  })
+end)
+
 local function create()
   popup.create(
     "NeogitCommitPopup",
@@ -169,8 +185,9 @@ local function create()
             -- we need \r? to support windows
             data = split(data, '\r?\n')
             await(prompt_commit_message(data, skip_gen))
+            local git_output_buffer = await(stream_output_buffer())
             local _, code = await(
-              cli.commit.commit_message_file(commit_file).args(unpack(popup.get_arguments())).call()
+              cli.commit.commit_message_file(commit_file).stream_output(git_output_buffer).args(unpack(popup.get_arguments())).call()
             )
             if code == 0 then
               await(uv.fs_unlink(commit_file))

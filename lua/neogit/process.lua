@@ -9,11 +9,33 @@ local function spawn(options, cb)
   assert(options ~= nil, 'Options parameter must be given')
   assert(options.cmd, 'A command needs to be given!')
 
+  local output_buffer = options.stream_output
+  local output_lines = 0
+  local function append_output(data)
+    if not data or not output_buffer then
+      return
+    end
+    local lines = vim.split(data, "\n")
+    output_buffer:unlock()
+    output_buffer:set_lines(
+      output_lines,
+      output_lines + #lines,
+      false,
+      lines
+    )
+    output_buffer:lock()
+    output_lines = output_lines + #lines - 1
+  end
+
+
   local return_code, output, errors = nil, '', ''
   local stdin, stdout, stderr = vim.loop.new_pipe(false), vim.loop.new_pipe(false), vim.loop.new_pipe(false)
   local process_closed, stdout_closed, stderr_closed = false, false, false
   local function raise_if_fully_closed()
     if process_closed and stdout_closed and stderr_closed then
+      if output_buffer and return_code == 0 then
+        output_buffer:close()
+      end
       cb(trim_newlines(output), return_code, trim_newlines(errors))
     end
   end
@@ -53,7 +75,7 @@ local function spawn(options, cb)
     error(err)
   end
 
-  vim.loop.read_start(stdout, function(err, data)
+  vim.loop.read_start(stdout, vim.schedule_wrap(function(err, data)
     assert(not err, err)
     if not data then
       stdout:read_stop()
@@ -64,10 +86,11 @@ local function spawn(options, cb)
     end
 
     --print('STDOUT', err, data)
+    append_output(data)
     output = output .. data
-  end)
+  end))
 
-  vim.loop.read_start(stderr, function (err, data)
+  vim.loop.read_start(stderr, vim.schedule_wrap(function (err, data)
     assert(not err, err)
     if not data then
       stderr:read_stop()
@@ -78,8 +101,9 @@ local function spawn(options, cb)
     end
 
     --print('STDERR', err, data)
+    append_output(data)
     errors = errors .. (data or '')
-  end)
+  end))
 
   if options.input ~= nil then
     vim.loop.write(stdin, options.input)
